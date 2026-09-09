@@ -30,14 +30,15 @@ Playwright uses your installed Chrome (`channel="chrome"`). You do not need `pla
 ```bash
 loom login
 loom list
-loom list --format json
 loom list --limit 20
 loom list --id-only
-loom info <id-or-share-url>
-loom info <id> --format json
+loom list --compact | jq
+loom list --select id,title --csv
+loom info <id>
+loom info <id> --format json --compact
 loom transcript <id>
 loom transcript <id> --format json
-loom transcript <id> -o transcript.txt
+loom transcript <id> -o out.txt
 ```
 
 `loom login` opens Chrome. Sign in, wait until your library loads, and the window closes. The profile is saved at `~/.loom-cli/chrome-profile/`.
