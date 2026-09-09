@@ -10,6 +10,19 @@ from playwright.async_api import async_playwright
 from rich.console import Console
 from rich.table import Table
 
+from loom_cli.agent_ux import (
+    EXIT_NOT_FOUND,
+    agent_output_options,
+    compact_rows,
+    die,
+    emit_csv,
+    emit_json,
+    note_showing,
+    resolve_format,
+    select_fields,
+)
+
+
 PROFILE = Path.home() / ".loom-cli" / "chrome-profile"
 QUERIES = Path(__file__).resolve().parent / "queries"
 console = Console()
@@ -23,8 +36,8 @@ def has_session() -> bool:
 
 def need_session() -> None:
     if not has_session():
-        console.print("[red]No session. Run: loom login[/red]")
-        raise SystemExit(1)
+        from loom_cli.agent_ux import EXIT_AUTH, die
+        die("No session found.", EXIT_AUTH, hint="Run: loom login")
 
 
 def video_id(value: str) -> str:
@@ -251,11 +264,14 @@ def login_cmd():
     asyncio.run(login())
 
 
+LOOM_COMPACT = ("id", "title", "visibility")
+
+
 @main.command("list")
-@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table")
+@agent_output_options()
 @click.option("--limit", type=int, default=None, help="Stop after this many videos")
 @click.option("--id-only", is_flag=True, help="Print only video ids")
-def list_cmd(fmt, limit, id_only):
+def list_cmd(fmt, compact, select, quiet, as_csv, limit, id_only):
     """List videos in your library."""
     need_session()
     videos = asyncio.run(list_videos(limit))
@@ -263,8 +279,14 @@ def list_cmd(fmt, limit, id_only):
         for video in videos:
             click.echo(video["id"])
         return
+    data = compact_rows(videos, LOOM_COMPACT) if compact else videos
+    data = select_fields(data, select)
+    fmt = resolve_format(fmt)
+    if as_csv:
+        emit_csv(data if isinstance(data, list) else [data], LOOM_COMPACT if compact else None)
+        return
     if fmt == "json":
-        click.echo(json.dumps(videos, indent=2))
+        emit_json(data)
         return
     table = Table(title="Looms")
     table.add_column("ID", style="cyan", no_wrap=True)
@@ -273,19 +295,28 @@ def list_cmd(fmt, limit, id_only):
     for video in videos:
         table.add_row(video["id"], video["title"], video["visibility"])
     console.print(table)
-    console.print(f"{len(videos)} videos")
+    note_showing(len(videos), quiet=quiet, noun="videos")
 
 
 @main.command()
 @click.argument("video")
-@click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table")
-def info(video, fmt):
+@agent_output_options()
+def info(video, fmt, compact, select, quiet, as_csv):
     """Show one video."""
     need_session()
     vid = video_id(video)
     data = asyncio.run(video_info(vid))
+    if not data or not data.get("id"):
+        die(f"No video {vid}", EXIT_NOT_FOUND, hint="Run: loom list --id-only")
+    fields = ("id", "title", "created_at", "duration_seconds", "views")
+    payload = {k: data.get(k) for k in fields} if compact else data
+    payload = select_fields(payload, select)
+    fmt = resolve_format(fmt)
+    if as_csv:
+        emit_csv([payload] if isinstance(payload, dict) else payload)
+        return
     if fmt == "json":
-        click.echo(json.dumps(data, indent=2))
+        emit_json(payload)
         return
     table = Table(title=data["title"] or vid)
     table.add_column("Field", style="cyan")
@@ -300,27 +331,38 @@ def info(video, fmt):
 
 @main.command()
 @click.argument("video")
-@click.option("--format", "fmt", type=click.Choice(["text", "json"]), default="text")
+@agent_output_options(default_format="text", formats=("text", "json"))
 @click.option("-o", "out_path", type=click.Path(), default=None, help="Write the transcript here")
-def transcript(video, fmt, out_path):
+def transcript(video, fmt, compact, select, quiet, as_csv, out_path):
     """Pull the official transcript."""
     need_session()
     vid = video_id(video)
     phrases = asyncio.run(transcript_phrases(vid))
-    if fmt == "json":
-        text = json.dumps(phrases, indent=2)
-    else:
-        lines = []
-        for phrase in phrases:
-            ts = phrase.get("ts")
-            prefix = f"[{fmt_duration(ts)}] " if ts is not None else ""
-            lines.append(prefix + phrase["text"])
-        text = "\n".join(lines)
-    if out_path:
-        Path(out_path).write_text(text + ("\n" if text and not text.endswith("\n") else ""))
-        console.print(f"Wrote {out_path}")
+    if not phrases:
+        die(f"No transcript for {vid}", EXIT_NOT_FOUND, hint="Run: loom info <id>")
+    payload = phrases
+    if compact:
+        payload = [{"ts": p.get("ts"), "text": p.get("text")} for p in phrases]
+    payload = select_fields(payload, select)
+    # text default should stay text even when piped unless --format json
+    if fmt == "json" or as_csv:
+        if as_csv:
+            emit_csv(payload if isinstance(payload, list) else [payload])
+            return
+        emit_json(payload)
         return
-    click.echo(text)
+    lines = []
+    for phrase in phrases:
+        ts = phrase.get("ts")
+        prefix = f"[{fmt_duration(ts)}] " if ts is not None else ""
+        lines.append(prefix + phrase["text"])
+    text_out = "\n".join(lines)
+    if out_path:
+        Path(out_path).write_text(text_out + ("\n" if text_out and not text_out.endswith("\n") else ""))
+        if not quiet:
+            click.echo(f"Wrote {out_path}", err=True)
+        return
+    click.echo(text_out)
 
 
 if __name__ == "__main__":

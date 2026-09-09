@@ -50,6 +50,18 @@ After login, the CLI calls the same GraphQL operations the Loom library uses (`G
 
 Read-only. It cannot upload, edit, delete, or share videos.
 
+
+## Agent output
+
+Inspired by [CLI Printing Press](https://github.com/mvanhorn/cli-printing-press) agent UX:
+
+- Piped stdout auto-uses JSON when `--format` is `table` (no `--json` needed)
+- `--compact` for high-gravity fields only
+- `--select id,title` to project JSON/CSV fields
+- `--csv` for spreadsheet-friendly rows
+- `--quiet` / `-q` to suppress status lines
+- Exit codes: `0` ok, `2` usage, `3` not found, `4` auth, `5` api/runtime
+
 ## Limits
 
 - Your library only. No public search.
