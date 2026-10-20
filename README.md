@@ -1,3 +1,5 @@
+> **Archived.** Replaced by [webcli](https://github.com/truefrontier/webcli). Install: `brew install truefrontier/tap/webcli` or `pipx install truefrontier-webcli`. The equivalent command is now `webcli loom`.
+
 # loom-cli
 
 Unofficial read-only CLI for [Loom](https://www.loom.com). Sign in once in Chrome. Then list your videos and pull official transcripts.
